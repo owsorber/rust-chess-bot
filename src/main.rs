@@ -1,9 +1,10 @@
-use chess::{Board, ChessMove, MoveGen};
+use chess::{BitBoard, Board, ChessMove, Color, MoveGen, Piece};
 use rand::Rng;
 use reqwest;
 use serde_json::Value;
 use std::env;
 use std::fs;
+use std::ops::BitAnd;
 use std::str::FromStr;
 
 /**
@@ -21,6 +22,139 @@ fn read_auth_token() -> String {
     };
 
     return auth.to_string();
+}
+
+/**
+ * [bitboard_color_piece(b, piece, color, player_white)] returns a BitBoard
+ * containing all the instances of [piece] for a particular [color] in the board
+ * [b]. The= BitBoard is flipped according to whether the player is white
+ * (indicated by [player_white]), with the player's pieces always starting at
+ * the bottom of the board.
+ */
+fn bitboard_color_piece(b: &Board, piece: Piece, color: Color, player_white: bool) -> BitBoard {
+    let bitboard_piece = b.pieces(piece);
+    let bitboard_color = b.color_combined(color);
+    if player_white {
+        return bitboard_piece.bitand(bitboard_color).reverse_colors();
+    } else {
+        return bitboard_piece.bitand(bitboard_color);
+    }
+}
+
+/**
+ * [bitboard_to_vec(bitboard)] converts [bitboard] to a 64-length hot vector
+ * containing a 1 for each piece and a 0 for each empty square in the bitboard.
+*/
+fn bitboard_to_vec(bitboard: &BitBoard) -> Vec<i8> {
+    let bitboard_str = bitboard.to_string().replace(" ", "").replace("\n", "");
+    let mut vec = Vec::new();
+    for i in (0..64) {
+        let iter = &bitboard_str[i..i + 1];
+        let dig = if iter == "X" { 1 } else { 0 };
+        vec.push(dig);
+    }
+
+    return vec;
+}
+
+/**
+ * [get_state(b, player_white)] converts the board [b] into a vector state based
+ * on whether the player is white. The state is a concatenated vector of 12
+ * bitboard representations, the first 6 of which represent the locations of the
+ * 6 different pieces for the player and the last 6 of which represent the
+ * locations of the 6 different pieces for the opponent.
+ */
+fn get_state(b: &Board, player_white: bool) -> Vec<i8> {
+    let mut state = Vec::new();
+
+    // White state
+    let mut white_state = Vec::new();
+    white_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Pawn,
+        Color::White,
+        player_white,
+    )));
+    white_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Bishop,
+        Color::White,
+        player_white,
+    )));
+    white_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Knight,
+        Color::White,
+        player_white,
+    )));
+    white_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Rook,
+        Color::White,
+        player_white,
+    )));
+    white_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Queen,
+        Color::White,
+        player_white,
+    )));
+    white_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::King,
+        Color::White,
+        player_white,
+    )));
+
+    // Black state
+    let mut black_state = Vec::new();
+    black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Pawn,
+        Color::White,
+        player_white,
+    )));
+    black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Bishop,
+        Color::White,
+        player_white,
+    )));
+    black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Knight,
+        Color::White,
+        player_white,
+    )));
+    black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Rook,
+        Color::White,
+        player_white,
+    )));
+    black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::Queen,
+        Color::White,
+        player_white,
+    )));
+    black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
+        b,
+        Piece::King,
+        Color::White,
+        player_white,
+    )));
+
+    if player_white {
+        state.append(&mut white_state);
+        state.append(&mut black_state);
+    } else {
+        state.append(&mut black_state);
+        state.append(&mut white_state);
+    }
+
+    println!("{:#?}", state);
+    return state;
 }
 
 /**
@@ -66,11 +200,15 @@ async fn main() -> Result<(), reqwest::Error> {
     let mut board = Board::default();
     let mut recent_move: Option<ChessMove> = None;
 
+    get_state(&board, true);
+
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
 
+    Ok(())
+
     // The game loop
-    loop {
+    /*loop {
         // Executes once each pair of moves
         loop {
             // Waiting for my turn
@@ -135,5 +273,5 @@ async fn main() -> Result<(), reqwest::Error> {
             .bearer_auth(&auth_token)
             .send()
             .await?;
-    }
+    }*/
 }
