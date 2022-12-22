@@ -70,10 +70,8 @@ async fn main() -> Result<(), reqwest::Error> {
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
 
-    // Ok(())
-
     // The game loop
-    loop {
+    'game_loop: loop {
         // Executes once each pair of moves
         loop {
             // Waiting for my turn
@@ -94,7 +92,7 @@ async fn main() -> Result<(), reqwest::Error> {
             };
             let json: Value = match serde_json::from_slice(&res_bytes) {
                 Ok(j) => j,
-                Err(_) => panic!(),
+                Err(_) => break 'game_loop,
             };
 
             // Check if my turn
@@ -151,4 +149,7 @@ async fn main() -> Result<(), reqwest::Error> {
             .send()
             .await?;
     }
+
+    println!("Game is over!");
+    Ok(())
 }
