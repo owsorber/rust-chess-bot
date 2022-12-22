@@ -1,4 +1,4 @@
-use chess::{BitBoard, Board, ChessMove, Color, MoveGen, Piece};
+use chess::{BitBoard, Board, ChessMove, Color, MoveGen, Piece, Square};
 use rand::Rng;
 use reqwest;
 use serde_json::Value;
@@ -35,9 +35,9 @@ fn bitboard_color_piece(b: &Board, piece: Piece, color: Color, player_white: boo
     let bitboard_piece = b.pieces(piece);
     let bitboard_color = b.color_combined(color);
     if player_white {
-        return bitboard_piece.bitand(bitboard_color).reverse_colors();
-    } else {
         return bitboard_piece.bitand(bitboard_color);
+    } else {
+        return bitboard_piece.bitand(bitboard_color).reverse_colors();
     }
 }
 
@@ -111,37 +111,37 @@ fn get_state(b: &Board, player_white: bool) -> Vec<i8> {
     black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
         b,
         Piece::Pawn,
-        Color::White,
+        Color::Black,
         player_white,
     )));
     black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
         b,
         Piece::Bishop,
-        Color::White,
+        Color::Black,
         player_white,
     )));
     black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
         b,
         Piece::Knight,
-        Color::White,
+        Color::Black,
         player_white,
     )));
     black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
         b,
         Piece::Rook,
-        Color::White,
+        Color::Black,
         player_white,
     )));
     black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
         b,
         Piece::Queen,
-        Color::White,
+        Color::Black,
         player_white,
     )));
     black_state.append(&mut bitboard_to_vec(&bitboard_color_piece(
         b,
         Piece::King,
-        Color::White,
+        Color::Black,
         player_white,
     )));
 
@@ -155,6 +155,74 @@ fn get_state(b: &Board, player_white: bool) -> Vec<i8> {
 
     println!("{:#?}", state);
     return state;
+}
+
+/**
+ * [vec_from_board_square(square_str, player_white)] converts the bitboard with
+ * only the square represented by [square_str] into a vector based on whether
+ * the player is white. This is used in action representation for representing
+ * bitboards of initial and final positions of a piece.
+ */
+fn vec_from_board_square(square_str: &str, player_white: bool) -> Vec<i8> {
+    let square = match Square::from_str(square_str) {
+        Ok(sq) => sq,
+        Err(_) => panic!(),
+    };
+    let square_bitboard = if player_white {
+        BitBoard::from_square(square)
+    } else {
+        BitBoard::from_square(square).reverse_colors()
+    };
+
+    return bitboard_to_vec(&square_bitboard);
+}
+
+/**
+ * [get_action(uci_str, player_white)] converts the move represented by the
+ * [uci_str] into an action vector based on whether the player is white. The
+ * action is a concatenated vector of two bitboard representations, the first of
+ * which being the initial position of the moved piece and the second of which
+ * being the final position of the moved piece, along with a final 4 dimensional
+ * hot vector representing the promoted-to piece if a promotion occured.
+ */
+fn get_action(uci_str: &str, player_white: bool) -> Vec<i8> {
+    // Parse uci string
+    let init_str = &uci_str[0..2];
+    let final_str = &uci_str[2..4];
+    let promote_str = if uci_str.len() > 4 {
+        &uci_str[4..5]
+    } else {
+        ""
+    };
+
+    // Initialize empty action vector
+    let mut action = Vec::new();
+
+    // Convert initial and final position into vectors
+    let mut init_pos = vec_from_board_square(init_str, player_white);
+    action.append(&mut init_pos);
+    let mut final_pos = vec_from_board_square(final_str, player_white);
+    action.append(&mut final_pos);
+
+    // Handle promotion vector possibilities
+    let mut promotion = Vec::new();
+    if promote_str.eq("") {
+        promotion = vec![0, 0, 0, 0];
+    } else if promote_str.eq("b") {
+        promotion = vec![1, 0, 0, 0];
+    } else if promote_str.eq("n") {
+        promotion = vec![0, 1, 0, 0];
+    } else if promote_str.eq("r") {
+        promotion = vec![0, 0, 1, 0];
+    } else {
+        // queen
+        promotion = vec![0, 0, 0, 1];
+    }
+    action.append(&mut promotion);
+
+    println!("{:#?}", action);
+
+    return action;
 }
 
 /**
@@ -200,7 +268,8 @@ async fn main() -> Result<(), reqwest::Error> {
     let mut board = Board::default();
     let mut recent_move: Option<ChessMove> = None;
 
-    get_state(&board, true);
+    // get_state(&board, true);
+    // get_action("h7h6", false);
 
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
