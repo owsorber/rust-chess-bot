@@ -1,4 +1,4 @@
-use chess::{BitBoard, Board, ChessMove, Color, MoveGen, Piece, Square};
+use chess::{BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Piece, Square};
 use rand::Rng;
 use reqwest;
 use serde_json::Value;
@@ -223,6 +223,35 @@ fn get_action(uci_str: &str, player_white: bool) -> Vec<i8> {
     println!("{:#?}", action);
 
     return action;
+}
+
+/**
+ * [get_reward(b, player_white)] returns the reward of a certain board state
+ * depending on whether the player is white. Ongoing games and stalemates give
+ * 0 reward, whereas winning/losing via checkmate provides 1 or -1 reward
+ * respectively.
+ * Note: this function will eventually probably base itself on response from the
+ * Lichess API to handle situations like draw or win via resign.
+ */
+fn get_reward(b: &Board, player_white: bool) -> i8 {
+    match b.status() {
+        BoardStatus::Ongoing | BoardStatus::Stalemate => 0,
+        BoardStatus::Checkmate => {
+            if player_white {
+                if b.side_to_move() == Color::Black {
+                    1
+                } else {
+                    -1
+                }
+            } else {
+                if b.side_to_move() == Color::White {
+                    1
+                } else {
+                    -1
+                }
+            }
+        }
+    }
 }
 
 /**
