@@ -1,15 +1,18 @@
+/**
+ * Utility module for handling conversion of Chess into an MDP (Markov Decision
+ * Process)
+ */
 use chess::{BitBoard, Board, BoardStatus, Color, Piece, Square};
 use std::ops::BitAnd;
 use std::str::FromStr;
 
-/*
-Struct to represent the experience of the RL agent at one time-step (i.e. move)
-*/
-struct Experience {
-    state: Vec<i8>,
-    action: Vec<i8>,
-    reward: i8,
-    next_state: Vec<i8>,
+// Struct to represent the experience of the bot at one time-step (i.e. move)
+#[derive(Clone, Debug)]
+pub struct Experience {
+    pub state: Vec<i8>,
+    pub action: Vec<i8>,
+    pub reward: i8,
+    pub next_state: Vec<i8>,
 }
 
 /**
@@ -141,8 +144,6 @@ pub fn get_state(b: &Board, player_white: bool) -> Vec<i8> {
         state.append(&mut white_state);
     }
 
-    println!("{:#?}", state);
-
     return state;
 }
 
@@ -209,8 +210,6 @@ pub fn get_action(uci_str: &str, player_white: bool) -> Vec<i8> {
     }
     action.append(&mut promotion);
 
-    println!("{:#?}", action);
-
     return action;
 }
 
@@ -222,7 +221,7 @@ pub fn get_action(uci_str: &str, player_white: bool) -> Vec<i8> {
 * Note: this function will eventually probably base itself on response from the
 * Lichess API to handle situations like draw or win via resign.
 */
-fn get_reward(b: &Board, player_white: bool) -> i8 {
+pub fn get_reward(b: &Board, player_white: bool) -> i8 {
     match b.status() {
         BoardStatus::Ongoing | BoardStatus::Stalemate => 0,
         BoardStatus::Checkmate => {
