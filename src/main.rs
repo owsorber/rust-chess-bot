@@ -45,6 +45,26 @@ fn make_random_move(b: Board) -> Option<ChessMove> {
     return next_move;
 }
 
+/**
+ * [board_from_moves(move_str)] generates a chess board from a string of moves
+ * [move_str], with each move being in uci format separated by a space. This is
+ * used because the Lichess game state request reliably gives this move string.
+ * Could improve to not have to redo every single move each time, but currently
+ * used to keep the board updated consistently.
+ */
+fn board_from_moves(move_str: &str) -> Board {
+    let mut board = Board::default();
+    let moves = move_str.split(" ");
+    for ms in moves {
+        match ChessMove::from_str(ms) {
+            Ok(m) => board = board.make_move_new(m),
+            Err(_) => panic!(),
+        };
+    }
+
+    return board;
+}
+
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
     // Parse auth token from config file
@@ -57,9 +77,6 @@ async fn main() -> Result<(), reqwest::Error> {
     // Initialize board
     let mut board = Board::default();
     let mut color_white = true;
-
-    //let b = ChessMove::from_str("g2g3"); // Board::from_str("g2g3 e7e5 c2c3 f8c5 a2a4 b8c6 f1g2 d7d5 g1h3 d5d4 c3c4 d4d3 b1a3 d3e2 d1e2 g8e7 e2d1 e8g8 f2f3 c8h3 e1e2 h3g2 b2b3 d8d5 d1e1 d5f3");
-    // println!("{:#?}", b);
 
     // Initialize experience replay memory logic
     let mut curr_experience = Experience {
@@ -81,8 +98,8 @@ async fn main() -> Result<(), reqwest::Error> {
         loop {
             // Waiting for my turn
 
-            // Poll json stream of in-game events
-            let res = client
+            // Poll general events json stream
+            let res_events = client
                 .get("https://lichess.org/api/stream/event")
                 .bearer_auth(&auth_token)
                 .send()
@@ -90,36 +107,22 @@ async fn main() -> Result<(), reqwest::Error> {
                 .chunk()
                 .await?;
 
-            // Convert response output into bytes and then json
-            let res_bytes = match res {
+            // Convert event response output into bytes and then json
+            let res_events_bytes = match res_events {
                 None => panic!(),
                 Some(b) => b,
             };
-            let json: Value = match serde_json::from_slice(&res_bytes) {
+            let event_json: Value = match serde_json::from_slice(&res_events_bytes) {
                 Ok(j) => j,
                 Err(_) => {
-                    // set game as over, but only break inner loop so that final state can be recorded
                     game_over = true;
-                    /*let res_game = client
-                        .get("https://lichess.org/api/bot/game/stream/".to_owned() + game_id)
-                        .bearer_auth(&auth_token)
-                        .send()
-                        .await?
-                        .chunk()
-                        .await?;
-                    let res_game_bytes = match res_game {
-                        None => panic!(),
-                        Some(b) => b,
-                    };*/
-                    // match
-
-                    break;
+                    break; // break inner loop so final board state still gets updated
                 }
             };
 
             // Set color if first move
             if first_move {
-                let color_str = match &json["game"]["color"] {
+                let color_str = match &event_json["game"]["color"] {
                     Value::String(s) => s,
                     _ => panic!(),
                 };
@@ -127,30 +130,48 @@ async fn main() -> Result<(), reqwest::Error> {
             }
 
             // Check if my turn
-            let my_turn = match &json["game"]["isMyTurn"] {
+            let my_turn = match &event_json["game"]["isMyTurn"] {
                 Value::Bool(b) => *b,
                 _ => panic!(),
             };
             if my_turn {
-                // Update board from FEN string and exit wait loop
-                board = match &json["game"]["fen"] {
-                    Value::String(s) => match Board::from_str(s) {
-                        Ok(b) => b,
-                        Err(_) => panic!(),
-                    },
-                    _ => panic!(),
-                };
+                // Exit, no longer waiting for turn
                 break;
             } else {
                 println!("Waiting for my turn!");
             }
         }
 
-        // Grab board state and reward now that opponent has moved
+        // Poll game-specific json stream to acquire move list
+        let res_game = client
+            .get("https://lichess.org/api/bot/game/stream/".to_owned() + game_id)
+            .bearer_auth(&auth_token)
+            .send()
+            .await?
+            .chunk()
+            .await?;
+
+        // Convert event response output into bytes and then json
+        let res_game_bytes = match res_game {
+            None => panic!(),
+            Some(b) => b,
+        };
+        let game_json: Value = match serde_json::from_slice(&res_game_bytes) {
+            Ok(j) => j,
+            Err(_) => panic!(),
+        };
+
+        // Update board from moves string
+        board = match &game_json["state"]["moves"] {
+            Value::String(s) => board_from_moves(s),
+            _ => panic!(),
+        };
+
+        // Grab board state and reward
         let board_state = get_state(&board, color_white);
         let board_reward = get_reward(&board, color_white);
 
-        // Update previous experience and push to replay memory
+        // Update previous experience and push to replay memory if not first move
         if first_move {
             first_move = false;
         } else {
@@ -160,6 +181,7 @@ async fn main() -> Result<(), reqwest::Error> {
             println!("Reward Recorded: {:#?}", curr_experience.reward);
         }
 
+        // Last experience has been recorded, we can now end game loop
         if game_over {
             break;
         }
