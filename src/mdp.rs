@@ -9,10 +9,10 @@ use std::str::FromStr;
 // Struct to represent the experience of the bot at one time-step (i.e. move)
 #[derive(Clone, Debug)]
 pub struct Experience {
-    pub state: Vec<i8>,
-    pub action: Vec<i8>,
-    pub reward: i8,
-    pub next_state: Vec<i8>,
+    pub state: Vec<f64>,
+    pub action: Vec<f64>,
+    pub reward: f64,
+    pub next_state: Vec<f64>,
 }
 
 /**
@@ -36,12 +36,12 @@ fn bitboard_color_piece(b: &Board, piece: Piece, color: Color, player_white: boo
 * [bitboard_to_vec(bitboard)] converts [bitboard] to a 64-length hot vector
 * containing a 1 for each piece and a 0 for each empty square in the bitboard.
 */
-fn bitboard_to_vec(bitboard: &BitBoard) -> Vec<i8> {
+fn bitboard_to_vec(bitboard: &BitBoard) -> Vec<f64> {
     let bitboard_str = bitboard.to_string().replace(" ", "").replace("\n", "");
     let mut vec = Vec::new();
-    for i in (0..64) {
+    for i in 0..64 {
         let iter = &bitboard_str[i..i + 1];
-        let dig = if iter == "X" { 1 } else { 0 };
+        let dig = if iter == "X" { 1. } else { 0. };
         vec.push(dig);
     }
 
@@ -55,7 +55,7 @@ fn bitboard_to_vec(bitboard: &BitBoard) -> Vec<i8> {
 * 6 different pieces for the player and the last 6 of which represent the
 * locations of the 6 different pieces for the opponent.
 */
-pub fn get_state(b: &Board, player_white: bool) -> Vec<i8> {
+pub fn get_state(b: &Board, player_white: bool) -> Vec<f64> {
     let mut state = Vec::new();
 
     // White state
@@ -153,7 +153,7 @@ pub fn get_state(b: &Board, player_white: bool) -> Vec<i8> {
 * the player is white. This is used in action representation for representing
 * bitboards of initial and final positions of a piece.
 */
-fn vec_from_board_square(square_str: &str, player_white: bool) -> Vec<i8> {
+fn vec_from_board_square(square_str: &str, player_white: bool) -> Vec<f64> {
     let square = match Square::from_str(square_str) {
         Ok(sq) => sq,
         Err(_) => panic!(),
@@ -175,7 +175,7 @@ fn vec_from_board_square(square_str: &str, player_white: bool) -> Vec<i8> {
 * being the final position of the moved piece, along with a final 4 dimensional
 * hot vector representing the promoted-to piece if a promotion occured.
 */
-pub fn get_action(uci_str: &str, player_white: bool) -> Vec<i8> {
+pub fn get_action(uci_str: &str, player_white: bool) -> Vec<f64> {
     // Parse uci string
     let init_str = &uci_str[0..2];
     let final_str = &uci_str[2..4];
@@ -197,16 +197,16 @@ pub fn get_action(uci_str: &str, player_white: bool) -> Vec<i8> {
     // Handle promotion vector possibilities
     let mut promotion = Vec::new();
     if promote_str.eq("") {
-        promotion = vec![0, 0, 0, 0];
+        promotion = vec![0., 0., 0., 0.];
     } else if promote_str.eq("b") {
-        promotion = vec![1, 0, 0, 0];
+        promotion = vec![1., 0., 0., 0.];
     } else if promote_str.eq("n") {
-        promotion = vec![0, 1, 0, 0];
+        promotion = vec![0., 1., 0., 0.];
     } else if promote_str.eq("r") {
-        promotion = vec![0, 0, 1, 0];
+        promotion = vec![0., 0., 1., 0.];
     } else {
         // queen
-        promotion = vec![0, 0, 0, 1];
+        promotion = vec![0., 0., 0., 1.];
     }
     action.append(&mut promotion);
 
@@ -221,21 +221,21 @@ pub fn get_action(uci_str: &str, player_white: bool) -> Vec<i8> {
 * Note: this function will eventually probably base itself on response from the
 * Lichess API to handle situations like draw or win via resign.
 */
-pub fn get_reward(b: &Board, player_white: bool) -> i8 {
+pub fn get_reward(b: &Board, player_white: bool) -> f64 {
     match b.status() {
-        BoardStatus::Ongoing | BoardStatus::Stalemate => 0,
+        BoardStatus::Ongoing | BoardStatus::Stalemate => 0.,
         BoardStatus::Checkmate => {
             if player_white {
                 if b.side_to_move() == Color::Black {
-                    1
+                    1.
                 } else {
-                    -1
+                    -1.
                 }
             } else {
                 if b.side_to_move() == Color::White {
-                    1
+                    1.
                 } else {
-                    -1
+                    -1.
                 }
             }
         }

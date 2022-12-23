@@ -1,13 +1,16 @@
 mod mdp;
 use crate::mdp::{get_action, get_reward, get_state, Experience};
 
-use chess::{Board, ChessMove, Color, MoveGen};
+use chess::{Board, ChessMove, MoveGen};
+use neuroflow::FeedForward;
 use rand::Rng;
 use reqwest;
 use serde_json::Value;
 use std::env;
 use std::fs;
 use std::str::FromStr;
+
+const INPUT_SPACE: i32 = 12 * 64 + 2 * 64 + 4;
 
 /**
  * Reads the Auth Token given by Lichess from the config.json file, which must
@@ -45,6 +48,38 @@ fn make_random_move(b: Board) -> Option<ChessMove> {
     return next_move;
 }
 
+fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Option<ChessMove> {
+    // Generate legal moves
+    let legal_moves = MoveGen::new_legal(&b);
+    if legal_moves.len() == 0 {
+        // If no legal moves, do nothing
+        return None;
+    }
+
+    let state = get_state(b, player_white);
+
+    let mut high_score: f64 = 0.;
+    let mut best_move: Option<ChessMove> = None;
+    for possible_move in legal_moves {
+        let mut action = get_action(&possible_move.to_string(), player_white);
+        // Grab sa pair
+        let mut sa = state.clone();
+        sa.append(&mut action);
+
+        // Compute Q-Value from policy
+        let nn_calc = nn.calc(&state[..]);
+        let score = nn_calc[0];
+        println!("{}", score);
+        if score >= high_score {
+            high_score = score;
+            best_move = Some(possible_move);
+        }
+    }
+
+    // Pick the best move
+    return best_move;
+}
+
 /**
  * [board_from_moves(move_str)] generates a chess board from a string of moves
  * [move_str], with each move being in uci format separated by a space. This is
@@ -56,6 +91,10 @@ fn board_from_moves(move_str: &str) -> Board {
     let mut board = Board::default();
     let moves = move_str.split(" ");
     for ms in moves {
+        if ms.len() == 0 {
+            // No moves yet
+            break;
+        }
         match ChessMove::from_str(ms) {
             Ok(m) => board = board.make_move_new(m),
             Err(_) => panic!(),
@@ -82,12 +121,15 @@ async fn main() -> Result<(), reqwest::Error> {
     let mut curr_experience = Experience {
         state: Vec::new(),
         action: Vec::new(),
-        reward: 0,
+        reward: 0.,
         next_state: Vec::new(),
     };
     let mut experience_memory: Vec<Experience> = Vec::new();
     let mut first_move = true;
     let mut game_over = false;
+
+    // Initialize policy network
+    let mut policy_network = FeedForward::new(&[INPUT_SPACE, 64, 1]);
 
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
@@ -191,7 +233,7 @@ async fn main() -> Result<(), reqwest::Error> {
 
         // Select a move
         println!("Making Move!");
-        let selected_move = make_random_move(board);
+        let selected_move = move_by_policy(&mut policy_network, &board, color_white);
         let uci_str = match selected_move {
             None => panic!(),
             Some(m) => m.to_string(),
