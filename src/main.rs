@@ -1,7 +1,7 @@
 mod mdp;
 use crate::mdp::{get_action, get_reward, get_state, Experience};
 
-use chess::{Board, ChessMove, MoveGen};
+use chess::{Board, ChessMove, Color, MoveGen};
 use rand::Rng;
 use reqwest;
 use serde_json::Value;
@@ -56,6 +56,10 @@ async fn main() -> Result<(), reqwest::Error> {
 
     // Initialize board
     let mut board = Board::default();
+    let mut color_white = true;
+
+    //let b = ChessMove::from_str("g2g3"); // Board::from_str("g2g3 e7e5 c2c3 f8c5 a2a4 b8c6 f1g2 d7d5 g1h3 d5d4 c3c4 d4d3 b1a3 d3e2 d1e2 g8e7 e2d1 e8g8 f2f3 c8h3 e1e2 h3g2 b2b3 d8d5 d1e1 d5f3");
+    // println!("{:#?}", b);
 
     // Initialize experience replay memory logic
     let mut curr_experience = Experience {
@@ -66,12 +70,13 @@ async fn main() -> Result<(), reqwest::Error> {
     };
     let mut experience_memory: Vec<Experience> = Vec::new();
     let mut first_move = true;
+    let mut game_over = false;
 
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
 
     // The game loop
-    'game_loop: loop {
+    loop {
         // Executes once each pair of moves
         loop {
             // Waiting for my turn
@@ -92,8 +97,34 @@ async fn main() -> Result<(), reqwest::Error> {
             };
             let json: Value = match serde_json::from_slice(&res_bytes) {
                 Ok(j) => j,
-                Err(_) => break 'game_loop,
+                Err(_) => {
+                    // set game as over, but only break inner loop so that final state can be recorded
+                    game_over = true;
+                    /*let res_game = client
+                        .get("https://lichess.org/api/bot/game/stream/".to_owned() + game_id)
+                        .bearer_auth(&auth_token)
+                        .send()
+                        .await?
+                        .chunk()
+                        .await?;
+                    let res_game_bytes = match res_game {
+                        None => panic!(),
+                        Some(b) => b,
+                    };*/
+                    // match
+
+                    break;
+                }
             };
+
+            // Set color if first move
+            if first_move {
+                let color_str = match &json["game"]["color"] {
+                    Value::String(s) => s,
+                    _ => panic!(),
+                };
+                color_white = color_str.eq("white");
+            }
 
             // Check if my turn
             let my_turn = match &json["game"]["isMyTurn"] {
@@ -116,8 +147,8 @@ async fn main() -> Result<(), reqwest::Error> {
         }
 
         // Grab board state and reward now that opponent has moved
-        let board_state = get_state(&board, true);
-        let board_reward = get_reward(&board, true);
+        let board_state = get_state(&board, color_white);
+        let board_reward = get_reward(&board, color_white);
 
         // Update previous experience and push to replay memory
         if first_move {
@@ -126,7 +157,11 @@ async fn main() -> Result<(), reqwest::Error> {
             curr_experience.reward = board_reward;
             curr_experience.next_state = board_state.clone();
             experience_memory.push(curr_experience.clone());
-            println!("Experience Recorded: {:#?}", curr_experience);
+            println!("Reward Recorded: {:#?}", curr_experience.reward);
+        }
+
+        if game_over {
+            break;
         }
 
         // Update current experience state
@@ -139,7 +174,7 @@ async fn main() -> Result<(), reqwest::Error> {
             None => panic!(),
             Some(m) => m.to_string(),
         };
-        curr_experience.action = get_action(&uci_str, true);
+        curr_experience.action = get_action(&uci_str, color_white);
         println!("Selected move {}", uci_str);
 
         // Post move
@@ -151,5 +186,6 @@ async fn main() -> Result<(), reqwest::Error> {
     }
 
     println!("Game is over!");
+    println!("Collected {} experiences", experience_memory.len());
     Ok(())
 }
