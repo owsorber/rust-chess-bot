@@ -87,6 +87,10 @@ async fn main() -> Result<(), reqwest::Error> {
     let mut board = Board::default();
     let mut color_white = true;
 
+    // Game state booleans
+    let mut first_move = true;
+    let mut game_over = false;
+
     // Initialize experience replay memory logic
     let mut curr_experience = Experience {
         state: Vec::new(),
@@ -96,8 +100,6 @@ async fn main() -> Result<(), reqwest::Error> {
         next_board: board.clone(),
     };
     let mut experience_memory: Vec<Experience> = Vec::new();
-    let mut first_move = true;
-    let mut game_over = false;
 
     // Initialize policy network and Q network (sync up to start game)
     let mut policy_network: FeedForward = io::load("policy.flow").unwrap();
@@ -194,12 +196,6 @@ async fn main() -> Result<(), reqwest::Error> {
             curr_experience.next_board = board.clone();
             experience_memory.push(curr_experience.clone());
             println!("Reward Recorded: {:#?}", curr_experience.reward);
-
-            // Learn from reward!!!
-            // Grab sa pair
-            // let mut sa = curr_experience.state.clone();
-            // sa.append(&mut curr_experience.action);
-            // policy_network.fit(&sa[..], &[curr_experience.reward]);
         }
 
         // Last experience has been recorded, we can now end game loop
