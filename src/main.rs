@@ -1,5 +1,6 @@
 mod mdp;
-use crate::mdp::{get_action, get_reward, get_state, Experience};
+use crate::mdp::learn_from_experience;
+use crate::mdp::{get_action, get_reward, get_state, move_by_policy, Experience};
 
 use chess::{Board, ChessMove, MoveGen};
 use neuroflow::{io, FeedForward};
@@ -11,6 +12,7 @@ use std::fs;
 use std::str::FromStr;
 
 const INPUT_SPACE: i32 = 12 * 64 + 2 * 64 + 4;
+const GAMMA: f64 = 0.99;
 
 /**
  * Reads the Auth Token given by Lichess from the config.json file, which must
@@ -46,38 +48,6 @@ fn make_random_move(b: Board) -> Option<ChessMove> {
     let next_move = legal_moves.nth(rand::thread_rng().gen_range(0..=legal_moves.len() - 1));
 
     return next_move;
-}
-
-fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Option<ChessMove> {
-    // Generate legal moves
-    let legal_moves = MoveGen::new_legal(&b);
-    if legal_moves.len() == 0 {
-        // If no legal moves, do nothing
-        return None;
-    }
-
-    let state = get_state(b, player_white);
-
-    let mut high_score: f64 = -100.;
-    let mut best_move: Option<ChessMove> = None;
-    for possible_move in legal_moves {
-        let mut action = get_action(&possible_move.to_string(), player_white);
-        // Grab sa pair
-        let mut sa = state.clone();
-        sa.append(&mut action);
-
-        // Compute Q-Value from policy
-        let nn_calc = nn.calc(&sa[..]);
-        let score = nn_calc[0];
-        println!("{}", score);
-        if score >= high_score {
-            high_score = score;
-            best_move = Some(possible_move);
-        }
-    }
-
-    // Pick the best move
-    return best_move;
 }
 
 /**
@@ -123,13 +93,15 @@ async fn main() -> Result<(), reqwest::Error> {
         action: Vec::new(),
         reward: 0.,
         next_state: Vec::new(),
+        next_board: board.clone(),
     };
     let mut experience_memory: Vec<Experience> = Vec::new();
     let mut first_move = true;
     let mut game_over = false;
 
-    // Initialize policy network
-    let mut policy_network: FeedForward = io::load("policy.flow").unwrap(); // FeedForward::new(&[INPUT_SPACE, 64, 1]);
+    // Initialize policy network and Q network (sync up to start game)
+    let mut policy_network: FeedForward = io::load("policy.flow").unwrap();
+    let mut q_network: FeedForward = io::load("policy.flow").unwrap();
 
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
@@ -219,14 +191,15 @@ async fn main() -> Result<(), reqwest::Error> {
         } else {
             curr_experience.reward = board_reward;
             curr_experience.next_state = board_state.clone();
+            curr_experience.next_board = board.clone();
             experience_memory.push(curr_experience.clone());
             println!("Reward Recorded: {:#?}", curr_experience.reward);
 
             // Learn from reward!!!
             // Grab sa pair
-            let mut sa = curr_experience.state.clone();
-            sa.append(&mut curr_experience.action);
-            policy_network.fit(&sa[..], &[curr_experience.reward])
+            // let mut sa = curr_experience.state.clone();
+            // sa.append(&mut curr_experience.action);
+            // policy_network.fit(&sa[..], &[curr_experience.reward]);
         }
 
         // Last experience has been recorded, we can now end game loop
@@ -258,8 +231,19 @@ async fn main() -> Result<(), reqwest::Error> {
     println!("Game is over!");
     println!("Collected {} experiences", experience_memory.len());
 
+    // Learn from experience gained in the game
+    learn_from_experience(
+        &mut policy_network,
+        q_network,
+        experience_memory,
+        GAMMA,
+        color_white,
+    );
+
     // Save neural network to file
     io::save(&policy_network, "policy.flow").unwrap();
+
+    println!("Learned and saved policy network to file.");
 
     Ok(())
 }

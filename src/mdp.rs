@@ -2,7 +2,8 @@
  * Utility module for handling conversion of Chess into an MDP (Markov Decision
  * Process)
  */
-use chess::{BitBoard, Board, BoardStatus, Color, Piece, Square};
+use chess::{BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Piece, Square};
+use neuroflow::FeedForward;
 use std::ops::BitAnd;
 use std::str::FromStr;
 
@@ -13,6 +14,7 @@ pub struct Experience {
     pub action: Vec<f64>,
     pub reward: f64,
     pub next_state: Vec<f64>,
+    pub next_board: Board,
 }
 
 /**
@@ -240,4 +242,87 @@ pub fn get_reward(b: &Board, player_white: bool) -> f64 {
             }
         }
     }
+}
+
+fn compute_q_max(
+    b: &Board,
+    state: Vec<f64>,
+    q_network: &mut FeedForward,
+    player_white: bool,
+) -> f64 {
+    // Generate legal moves
+    let legal_moves = MoveGen::new_legal(&b);
+    let mut high_score = -100.;
+    for m in legal_moves {
+        let mut a = get_action(&m.to_string(), player_white);
+        let mut sa = state.clone();
+        sa.append(&mut a);
+
+        let nn_calc = q_network.calc(&sa[..]);
+        let score = nn_calc[0];
+        if score >= high_score {
+            high_score = score;
+        }
+    }
+    return high_score;
+}
+
+// Learn for 1 game
+pub fn learn_from_experience(
+    policy_network: &mut FeedForward,
+    mut q_network: FeedForward,
+    replay_memory: Vec<Experience>,
+    gamma: f64,
+    player_white: bool,
+) {
+    for e in replay_memory {
+        // let state = e.state;
+        // let board = e.board;
+        let mut action = e.action;
+        // let reward = e.reward;
+        // let nstate = e.next_state;
+
+        // Build sa pair
+        let mut sa = e.state.clone();
+        sa.append(&mut action);
+
+        // Calculate label from q network on next state
+        let bellman_label = e.reward
+            + gamma * compute_q_max(&e.next_board, e.next_state, &mut q_network, player_white);
+
+        // Learn
+        policy_network.fit(&sa[..], &[bellman_label]);
+    }
+}
+
+pub fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Option<ChessMove> {
+    // Generate legal moves
+    let legal_moves = MoveGen::new_legal(&b);
+    if legal_moves.len() == 0 {
+        // If no legal moves, do nothing
+        return None;
+    }
+
+    let state = get_state(b, player_white);
+
+    let mut high_score: f64 = -100.;
+    let mut best_move: Option<ChessMove> = None;
+    for possible_move in legal_moves {
+        let mut action = get_action(&possible_move.to_string(), player_white);
+        // Grab sa pair
+        let mut sa = state.clone();
+        sa.append(&mut action);
+
+        // Compute Q-Value from policy
+        let nn_calc = nn.calc(&sa[..]);
+        let score = nn_calc[0];
+        println!("{}", score);
+        if score >= high_score {
+            high_score = score;
+            best_move = Some(possible_move);
+        }
+    }
+
+    // Pick the best move
+    return best_move;
 }
