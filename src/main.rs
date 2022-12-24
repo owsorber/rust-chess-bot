@@ -11,7 +11,7 @@ use std::env;
 use std::fs;
 use std::str::FromStr;
 
-const INPUT_SPACE: i32 = 12 * 64 + 2 * 64 + 4;
+// const INPUT_SPACE: i32 = 12 * 64 + 2 * 64 + 4;
 const GAMMA: f64 = 0.99;
 
 /**
@@ -101,7 +101,7 @@ async fn main() -> Result<(), reqwest::Error> {
 
     // Initialize policy network and Q network (sync up to start game)
     let mut policy_network: FeedForward = io::load("policy.flow").unwrap();
-    let mut q_network: FeedForward = io::load("policy.flow").unwrap();
+    let q_network: FeedForward = io::load("policy.flow").unwrap();
 
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
@@ -242,8 +242,7 @@ async fn main() -> Result<(), reqwest::Error> {
 
     // Save neural network to file
     io::save(&policy_network, "policy.flow").unwrap();
-
-    println!("Learned and saved policy network to file.");
+    println!("Learned from game and saved policy network to file.");
 
     Ok(())
 }

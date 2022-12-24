@@ -229,21 +229,27 @@ pub fn get_reward(b: &Board, player_white: bool) -> f64 {
         BoardStatus::Checkmate => {
             if player_white {
                 if b.side_to_move() == Color::Black {
-                    1.
+                    100.
                 } else {
-                    -1.
+                    -100.
                 }
             } else {
                 if b.side_to_move() == Color::White {
-                    1.
+                    100.
                 } else {
-                    -1.
+                    -100.
                 }
             }
         }
     }
 }
 
+/**
+ * [compute_q_max(b, state, q_network, player_white)] computes the predicted max
+ * value obtained by the Q function for any coming out of board [b] (with
+ * [state] as a vector representation of [b]) depending on whether the player is
+ * white. It uses [q_network] to approximate the output.
+ */
 fn compute_q_max(
     b: &Board,
     state: Vec<f64>,
@@ -252,7 +258,9 @@ fn compute_q_max(
 ) -> f64 {
     // Generate legal moves
     let legal_moves = MoveGen::new_legal(&b);
-    let mut high_score = -100.;
+
+    // For each legal move compute the score
+    let mut high_score = f64::NEG_INFINITY;
     for m in legal_moves {
         let mut a = get_action(&m.to_string(), player_white);
         let mut sa = state.clone();
@@ -267,7 +275,13 @@ fn compute_q_max(
     return high_score;
 }
 
-// Learn for 1 game
+/**
+ * [learn_from_experience(policy_network, q_network, replay_memory, gamma, player_white)]
+ * trains the policy network on all experiences in [replay_memory] based on
+ * whether the player is white, with [q_network] as the network that
+ * approximates the Q-function and [gamma] being the discounting factor used in
+ * the Bellman equation.
+ */
 pub fn learn_from_experience(
     policy_network: &mut FeedForward,
     mut q_network: FeedForward,
@@ -276,25 +290,28 @@ pub fn learn_from_experience(
     player_white: bool,
 ) {
     for e in replay_memory {
-        // let state = e.state;
-        // let board = e.board;
+        // Extract action
         let mut action = e.action;
-        // let reward = e.reward;
-        // let nstate = e.next_state;
 
-        // Build sa pair
+        // Build state-action pair
         let mut sa = e.state.clone();
         sa.append(&mut action);
 
-        // Calculate label from q network on next state
+        // Calculate label from q network on next state using Bellman equation
         let bellman_label = e.reward
             + gamma * compute_q_max(&e.next_board, e.next_state, &mut q_network, player_white);
 
-        // Learn
+        // Learn from training example
         policy_network.fit(&sa[..], &[bellman_label]);
     }
 }
 
+/**
+ * [move_by_policy(nn, b, player_white)] utilizes the policy represented by
+ * policy network [nn] to return a chess move in board [b] depending on whether
+ * the player is white. Alternatively if there are no legal moves it returns
+ * None.
+ */
 pub fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Option<ChessMove> {
     // Generate legal moves
     let legal_moves = MoveGen::new_legal(&b);
@@ -305,7 +322,7 @@ pub fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Op
 
     let state = get_state(b, player_white);
 
-    let mut high_score: f64 = -100.;
+    let mut high_score: f64 = f64::NEG_INFINITY;
     let mut best_move: Option<ChessMove> = None;
     for possible_move in legal_moves {
         let mut action = get_action(&possible_move.to_string(), player_white);
