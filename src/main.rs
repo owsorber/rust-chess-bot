@@ -2,7 +2,7 @@ mod mdp;
 use crate::mdp::{get_action, get_reward, get_state, Experience};
 
 use chess::{Board, ChessMove, MoveGen};
-use neuroflow::FeedForward;
+use neuroflow::{io, FeedForward};
 use rand::Rng;
 use reqwest;
 use serde_json::Value;
@@ -58,7 +58,7 @@ fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Option
 
     let state = get_state(b, player_white);
 
-    let mut high_score: f64 = 0.;
+    let mut high_score: f64 = -100.;
     let mut best_move: Option<ChessMove> = None;
     for possible_move in legal_moves {
         let mut action = get_action(&possible_move.to_string(), player_white);
@@ -67,7 +67,7 @@ fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Option
         sa.append(&mut action);
 
         // Compute Q-Value from policy
-        let nn_calc = nn.calc(&state[..]);
+        let nn_calc = nn.calc(&sa[..]);
         let score = nn_calc[0];
         println!("{}", score);
         if score >= high_score {
@@ -129,7 +129,7 @@ async fn main() -> Result<(), reqwest::Error> {
     let mut game_over = false;
 
     // Initialize policy network
-    let mut policy_network = FeedForward::new(&[INPUT_SPACE, 64, 1]);
+    let mut policy_network: FeedForward = io::load("policy.flow").unwrap(); // FeedForward::new(&[INPUT_SPACE, 64, 1]);
 
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
@@ -221,6 +221,12 @@ async fn main() -> Result<(), reqwest::Error> {
             curr_experience.next_state = board_state.clone();
             experience_memory.push(curr_experience.clone());
             println!("Reward Recorded: {:#?}", curr_experience.reward);
+
+            // Learn from reward!!!
+            // Grab sa pair
+            let mut sa = curr_experience.state.clone();
+            sa.append(&mut curr_experience.action);
+            policy_network.fit(&sa[..], &[curr_experience.reward])
         }
 
         // Last experience has been recorded, we can now end game loop
@@ -251,5 +257,9 @@ async fn main() -> Result<(), reqwest::Error> {
 
     println!("Game is over!");
     println!("Collected {} experiences", experience_memory.len());
+
+    // Save neural network to file
+    io::save(&policy_network, "policy.flow").unwrap();
+
     Ok(())
 }
