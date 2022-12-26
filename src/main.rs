@@ -11,7 +11,7 @@ use std::env;
 use std::fs;
 use std::str::FromStr;
 
-// const INPUT_SPACE: i32 = 12 * 64 + 2 * 64 + 4;
+const INPUT_DIM: i32 = 12 * 64 + 2 * 64 + 4;
 const GAMMA: f64 = 0.99;
 
 /**
@@ -102,7 +102,7 @@ async fn main() -> Result<(), reqwest::Error> {
     let mut experience_memory: Vec<Experience> = Vec::new();
 
     // Initialize policy network and Q network (sync up to start game)
-    let mut policy_network: FeedForward = io::load("policy.flow").unwrap();
+    let mut policy_network: FeedForward = io::load("policy.flow").unwrap(); // FeedForward::new(&[INPUT_DIM, 64, 1]);
     let q_network: FeedForward = io::load("policy.flow").unwrap();
 
     // Create new client to interact with lichess

@@ -259,6 +259,11 @@ fn compute_q_max(
     // Generate legal moves
     let legal_moves = MoveGen::new_legal(&b);
 
+    // No more moves, means we are at end state
+    if legal_moves.len() == 0 {
+        return 0.;
+    }
+
     // For each legal move compute the score
     let mut high_score = f64::NEG_INFINITY;
     for m in legal_moves {
@@ -303,6 +308,11 @@ pub fn learn_from_experience(
 
         // Learn from training example
         policy_network.fit(&sa[..], &[bellman_label]);
+
+        println!(
+            "Experience: reward is {}, bellman label is {}",
+            e.reward, bellman_label
+        );
     }
 }
 
