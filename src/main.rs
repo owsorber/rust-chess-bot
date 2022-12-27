@@ -3,6 +3,7 @@ use crate::mdp::learn_from_experience;
 use crate::mdp::{get_action, get_reward, get_state, move_by_policy, Experience};
 
 use chess::{Board, ChessMove, MoveGen};
+use mdp::play_against_self;
 use neuroflow::{io, FeedForward};
 use rand::Rng;
 use reqwest;
@@ -12,7 +13,7 @@ use std::fs;
 use std::str::FromStr;
 
 const INPUT_DIM: i32 = 12 * 64 + 2 * 64 + 4;
-const GAMMA: f64 = 0.99;
+const GAMMA: f64 = 0.8;
 
 /**
  * Reads the Auth Token given by Lichess from the config.json file, which must
@@ -29,25 +30,6 @@ fn read_auth_token() -> String {
     };
 
     return auth.to_string();
-}
-
-/**
- * [make_random_move(b)] selects a random legal move for board b. If there are
- * no legal moves, it returns None. If there is at least one legal move, it
- * returns Some(m) where m is the legal move selected.
- */
-fn make_random_move(b: Board) -> Option<ChessMove> {
-    // Generate legal moves
-    let mut legal_moves = MoveGen::new_legal(&b);
-    if legal_moves.len() == 0 {
-        // If no legal moves, do nothing
-        return None;
-    }
-
-    // Pick a random move
-    let next_move = legal_moves.nth(rand::thread_rng().gen_range(0..=legal_moves.len() - 1));
-
-    return next_move;
 }
 
 /**
@@ -103,13 +85,13 @@ async fn main() -> Result<(), reqwest::Error> {
 
     // Initialize policy network and Q network (sync up to start game)
     let mut policy_network: FeedForward = io::load("policy.flow").unwrap(); // FeedForward::new(&[INPUT_DIM, 64, 1]);
-    let q_network: FeedForward = io::load("policy.flow").unwrap();
+    let mut q_network: FeedForward = io::load("policy.flow").unwrap();
 
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
 
     // The game loop
-    loop {
+    /*loop {
         // Executes once each pair of moves
         loop {
             // Waiting for my turn
@@ -194,7 +176,9 @@ async fn main() -> Result<(), reqwest::Error> {
             curr_experience.reward = board_reward;
             curr_experience.next_state = board_state.clone();
             curr_experience.next_board = board.clone();
-            experience_memory.push(curr_experience.clone());
+            if rand::thread_rng().gen_range(0. ..=1.) < 0.2 || game_over {
+                experience_memory.push(curr_experience.clone());
+            }
             println!("Reward Recorded: {:#?}", curr_experience.reward);
         }
 
@@ -230,15 +214,32 @@ async fn main() -> Result<(), reqwest::Error> {
     // Learn from experience gained in the game
     learn_from_experience(
         &mut policy_network,
-        q_network,
+        &mut q_network,
         experience_memory,
         GAMMA,
         color_white,
-    );
+    );*/
 
-    // Save neural network to file
     io::save(&policy_network, "policy.flow").unwrap();
     println!("Learned from game and saved policy network to file.");
+
+    for i in 1..187 {
+        println!("*** GAME {} ***", i);
+        let experience_memory = play_against_self(&mut policy_network);
+
+        learn_from_experience(
+            &mut policy_network,
+            &mut q_network,
+            experience_memory,
+            GAMMA,
+            color_white,
+        );
+
+        // Save neural network to file
+        io::save(&policy_network, "policy.flow").unwrap();
+        q_network = io::load("policy.flow").unwrap();
+        println!("Learned from game and saved policy network to file.");
+    }
 
     Ok(())
 }

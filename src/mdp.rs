@@ -2,8 +2,9 @@
  * Utility module for handling conversion of Chess into an MDP (Markov Decision
  * Process)
  */
-use chess::{BitBoard, Board, BoardStatus, ChessMove, Color, MoveGen, Piece, Square};
+use chess::{BitBoard, Board, BoardStatus, ChessMove, Color, Game, MoveGen, Piece, Square};
 use neuroflow::FeedForward;
+use rand::Rng;
 use std::ops::BitAnd;
 use std::str::FromStr;
 
@@ -215,6 +216,25 @@ pub fn get_action(uci_str: &str, player_white: bool) -> Vec<f64> {
     return action;
 }
 
+fn point_difference(state: Vec<f64>) -> f64 {
+    let mut count = 0.;
+    for i in 0..12 {
+        let start = i * 64;
+        let end = (i + 1) * 64;
+        for j in start..end {
+            let val = if i < 6 { state[j] } else { -state[j] };
+            match i % 6 {
+                0 => count += val,
+                1 | 2 => count += 3. * val,
+                3 => count += 5. * val,
+                4 => count += 10. * val,
+                _ => (),
+            }
+        }
+    }
+    return 2. * count;
+}
+
 /**
 * [get_reward(b, player_white)] returns the reward of a certain board state
 * depending on whether the player is white. Ongoing games and stalemates give
@@ -225,7 +245,8 @@ pub fn get_action(uci_str: &str, player_white: bool) -> Vec<f64> {
 */
 pub fn get_reward(b: &Board, player_white: bool) -> f64 {
     match b.status() {
-        BoardStatus::Ongoing | BoardStatus::Stalemate => 0.,
+        BoardStatus::Ongoing => 0.,
+        BoardStatus::Stalemate => 0.,
         BoardStatus::Checkmate => {
             if player_white {
                 if b.side_to_move() == Color::Black {
@@ -289,7 +310,7 @@ fn compute_q_max(
  */
 pub fn learn_from_experience(
     policy_network: &mut FeedForward,
-    mut q_network: FeedForward,
+    q_network: &mut FeedForward,
     replay_memory: Vec<Experience>,
     gamma: f64,
     player_white: bool,
@@ -303,8 +324,8 @@ pub fn learn_from_experience(
         sa.append(&mut action);
 
         // Calculate label from q network on next state using Bellman equation
-        let bellman_label = e.reward
-            + gamma * compute_q_max(&e.next_board, e.next_state, &mut q_network, player_white);
+        let bellman_label =
+            e.reward + gamma * compute_q_max(&e.next_board, e.next_state, q_network, player_white);
 
         // Learn from training example
         policy_network.fit(&sa[..], &[bellman_label]);
@@ -343,7 +364,7 @@ pub fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Op
         // Compute Q-Value from policy
         let nn_calc = nn.calc(&sa[..]);
         let score = nn_calc[0];
-        println!("{}", score);
+        // println!("{}", score);
         if score >= high_score {
             high_score = score;
             best_move = Some(possible_move);
@@ -352,4 +373,126 @@ pub fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Op
 
     // Pick the best move
     return best_move;
+}
+
+/**
+ * [make_random_move(b)] selects a random legal move for board b. If there are
+ * no legal moves, it returns None. If there is at least one legal move, it
+ * returns Some(m) where m is the legal move selected.
+ */
+fn make_random_move(b: Board) -> Option<ChessMove> {
+    // Generate legal moves
+    let mut legal_moves = MoveGen::new_legal(&b);
+    if legal_moves.len() == 0 {
+        // If no legal moves, do nothing
+        return None;
+    }
+
+    // Pick a random move
+    let next_move = legal_moves.nth(rand::thread_rng().gen_range(0..=legal_moves.len() - 1));
+
+    return next_move;
+}
+
+/***********************/
+
+pub fn play_against_self(policy_network: &mut FeedForward) -> Vec<Experience> {
+    let mut game = Game::new();
+
+    // Initialize experience replay memory logic
+    let mut curr_experience = Experience {
+        state: Vec::new(),
+        action: Vec::new(),
+        reward: 0.,
+        next_state: Vec::new(),
+        next_board: Board::default(),
+    };
+    let mut experience_memory: Vec<Experience> = Vec::new();
+
+    let mut count = 1;
+    loop {
+        println!("Move {}", count);
+
+        // Check game state and potentially exit
+        match game.result() {
+            Some(_) => break,
+            None => (),
+        };
+
+        // white make move (half random, half by policy)
+        let board = game.current_position();
+        let white_move_policy = move_by_policy(policy_network, &board, true);
+        let white_move_random = make_random_move(board);
+
+        let rand = rand::thread_rng().gen_range(0. ..=1.);
+
+        let selected_move = match if rand > 0.5 {
+            println!("Moved by policy.");
+            white_move_policy
+        } else {
+            println!("Moved randomly.");
+            white_move_random
+        } {
+            Some(m) => m,
+            None => panic!(),
+        };
+
+        let board_state = get_state(&board, true);
+        curr_experience.state = board_state.clone();
+
+        game.make_move(selected_move);
+
+        curr_experience.action = get_action(&selected_move.to_string(), true);
+
+        // Check game state and potentially exit
+        let board = game.current_position();
+        let board_state = get_state(&board, true);
+        match game.result() {
+            Some(_) => {
+                curr_experience.reward = get_reward(&board, true);
+                curr_experience.next_state = board_state.clone();
+                curr_experience.next_board = board.clone();
+
+                experience_memory.push(curr_experience.clone());
+                break;
+            }
+            None => (),
+        };
+        if game.can_declare_draw() {
+            curr_experience.reward = point_difference(board_state.clone());
+            curr_experience.next_state = board_state.clone();
+            curr_experience.next_board = board.clone();
+            experience_memory.push(curr_experience.clone());
+            break;
+        }
+
+        // Black make move by policy
+        let board = game.current_position();
+        let black_move_policy = move_by_policy(policy_network, &board, false);
+
+        let selected_move = match black_move_policy {
+            Some(m) => m,
+            None => panic!(),
+        };
+
+        game.make_move(selected_move);
+
+        let board = game.current_position();
+        let board_state = get_state(&board, true);
+        curr_experience.reward = get_reward(&board, true);
+        curr_experience.next_state = board_state.clone();
+        curr_experience.next_board = board.clone();
+
+        // ONLY ADD TO EXPERIENCE 20% OF THE TIME
+        if rand < 0.2 {
+            experience_memory.push(curr_experience.clone());
+        }
+
+        println!("{:#?}", board.to_string());
+        count = count + 1;
+    }
+
+    println!("End of game. Experience accumulated.");
+
+    return experience_memory;
 }
