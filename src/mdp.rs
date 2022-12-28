@@ -364,7 +364,7 @@ pub fn move_by_policy(nn: &mut FeedForward, b: &Board, player_white: bool) -> Op
         // Compute Q-Value from policy
         let nn_calc = nn.calc(&sa[..]);
         let score = nn_calc[0];
-        // println!("{}", score);
+        // println!("Score {} for move {}", score, possible_move.to_string());
         if score >= high_score {
             high_score = score;
             best_move = Some(possible_move);

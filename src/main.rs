@@ -4,7 +4,7 @@ use crate::mdp::{get_action, get_reward, get_state, move_by_policy, Experience};
 
 use chess::{Board, ChessMove, MoveGen};
 use mdp::play_against_self;
-use neuroflow::{io, FeedForward};
+use neuroflow::{activators, io, FeedForward};
 use rand::Rng;
 use reqwest;
 use serde_json::Value;
@@ -86,6 +86,9 @@ async fn main() -> Result<(), reqwest::Error> {
     // Initialize policy network and Q network (sync up to start game)
     let mut policy_network: FeedForward = io::load("policy.flow").unwrap(); // FeedForward::new(&[INPUT_DIM, 64, 1]);
     let mut q_network: FeedForward = io::load("policy.flow").unwrap();
+
+    policy_network.learning_rate(0.3);
+    policy_network.activation(activators::Type::Tanh);
 
     // Create new client to interact with lichess
     let client = reqwest::Client::new();
@@ -223,7 +226,7 @@ async fn main() -> Result<(), reqwest::Error> {
     io::save(&policy_network, "policy.flow").unwrap();
     println!("Learned from game and saved policy network to file.");
 
-    for i in 1..187 {
+    /*for i in 1..201 {
         println!("*** GAME {} ***", i);
         let experience_memory = play_against_self(&mut policy_network);
 
@@ -239,7 +242,7 @@ async fn main() -> Result<(), reqwest::Error> {
         io::save(&policy_network, "policy.flow").unwrap();
         q_network = io::load("policy.flow").unwrap();
         println!("Learned from game and saved policy network to file.");
-    }
+    }*/
 
     Ok(())
 }
